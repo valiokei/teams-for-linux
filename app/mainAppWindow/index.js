@@ -18,6 +18,7 @@ const TrayIconChooser = require("../browser/tools/trayIconChooser");
 require("../appConfiguration");
 const ConnectionManager = require("../connectionManager");
 const BrowserWindowManager = require("../mainAppWindow/browserWindowManager");
+const authDiagnostics = require("../browser/tools/authDiagnostics");
 const os = require("node:os");
 const path = require("node:path");
 
@@ -336,7 +337,11 @@ async function cleanExpiredAuthCookies(windowSession, forceCleanAll = false) {
     const removedCount = results.filter(Boolean).length;
 
     console.info(`[AUTH_RECOVERY] Cleaned ${removedCount}/${cookiesToRemove.length} auth cookies`);
-    return { cleaned: removedCount, total: authCookies.length, expired: expired.length };
+    const result = { cleaned: removedCount, total: authCookies.length, expired: expired.length };
+    if (config?.auth?.diagnosticLogging) {
+      authDiagnostics.logCookieCleanup(result, forceCleanAll ? 'recovery' : 'startup/resume');
+    }
+    return result;
   } catch (error) {
     console.error('[AUTH_RECOVERY] Cookie check failed:', error.message);
     return { cleaned: 0, total: 0, expired: 0 };
@@ -349,6 +354,9 @@ async function cleanExpiredAuthCookies(windowSession, forceCleanAll = false) {
  */
 async function triggerAuthRecovery() {
   console.info('[AUTH_RECOVERY] Clearing auth state and reloading...');
+  if (config?.auth?.diagnosticLogging) {
+    authDiagnostics.logRecoveryAction('triggered');
+  }
 
   // Clear localStorage auth tokens via renderer
   try {
@@ -433,6 +441,11 @@ exports.onAppReady = async function onAppReady(configGroup, customBackground, sh
   window = await browserWindowManager.createWindow();
   streamSelector = new StreamSelector(window);
 
+  // Auth diagnostics: log startup state if enabled
+  if (config.auth?.diagnosticLogging) {
+    authDiagnostics.logAuthDiagnostics(config, window);
+  }
+
   // Restrict WebRTC ICE candidate gathering to the interface with the default
   // route, preventing secondary interfaces (e.g. an ethernet adapter with no
   // internet gateway) from being advertised, which causes asymmetric STUN
@@ -487,6 +500,9 @@ exports.onAppReady = async function onAppReady(configGroup, customBackground, sh
 
     authRecoveryTriggered = true;
     console.info('[AUTH_RECOVERY] Auth failure detected, scheduling recovery');
+    if (config?.auth?.diagnosticLogging) {
+      authDiagnostics.logRecoveryAction('triggered', { sourceId: event.sourceId || 'unknown' });
+    }
 
     // Delay to let Teams' own retry mechanism attempt recovery first
     setTimeout(() => triggerAuthRecovery(), 5000);
@@ -874,7 +890,10 @@ function onPageTitleUpdated(_event, title) {
   window.webContents.send("page-title", title);
 }
 
-function onNavigationChanged() {
+function onNavigationChanged(event, url) {
+  if (config?.auth?.diagnosticLogging && url) {
+    authDiagnostics.logNavigationEvent(url, 'did-navigate', true);
+  }
   if (window?.webContents?.navigationHistory) {
     const canGoBack = window.webContents.navigationHistory.canGoBack();
     const canGoForward = window.webContents.navigationHistory.canGoForward();
@@ -905,8 +924,17 @@ function addEventHandlers() {
   // Electron on Linux lacks OS-level auth brokers (WAM/Keychain) that browsers
   // use to transparently refresh tokens, so we handle expiry ourselves.
   const { powerMonitor } = require("electron");
+  powerMonitor.on("suspend", () => {
+    if (config?.auth?.diagnosticLogging) {
+      authDiagnostics.logSuspendResume('suspend');
+    }
+  });
+
   powerMonitor.on("resume", async () => {
     console.debug('[AUTH_RECOVERY] System resumed, checking auth cookies');
+    if (config?.auth?.diagnosticLogging) {
+      authDiagnostics.logSuspendResume('resume');
+    }
     const result = await cleanExpiredAuthCookies(window.webContents.session);
     if (result.expired > 0) {
       console.info('[AUTH_RECOVERY] Cleaned expired cookies after resume', {
