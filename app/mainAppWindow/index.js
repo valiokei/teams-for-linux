@@ -1,3 +1,4 @@
+
 const {
   shell,
   BrowserWindow,
@@ -46,6 +47,12 @@ let streamSelector;
 let screenSharingService = null;
 let connectionManager = null;
 let menus = null;
+
+// Guard to prevent repeated auth recovery triggers. Set to true when
+// triggerAuthRecovery() fires; reset only after a confirmed successful
+// Teams page load so that transient failures don't permanently disable
+// automatic recovery.
+let authRecoveryTriggered = false;
 
 const isMac = os.platform() === "darwin";
 
@@ -478,7 +485,6 @@ exports.onAppReady = async function onAppReady(configGroup, customBackground, sh
   const AUTH_FAILURE_PATTERNS = ['InteractionRequired'];
   // Only trust auth failure signals from Teams/Microsoft origins
   const TRUSTED_AUTH_SOURCES = ['teams.cloud.microsoft', 'teams.microsoft.com', 'login.microsoftonline.com'];
-  let authRecoveryTriggered = false;
   // Worker UPRs are transient during active calls (#2428); suppress them only while
   // a call is in progress so startup recovery still works for stale-token loops (#2480).
   let callActive = false;
@@ -614,6 +620,17 @@ function onDidFinishLoad() {
   if (!currentUrl.startsWith("https://")) {
     console.debug(`[CONNECTION] Skipping script injection on non-Teams page: ${currentUrl.split("?")[0]}`);
     return;
+  }
+
+  // Reset auth recovery guard after a successful Teams page load.
+  // This allows future automatic recovery if the session expires again.
+  // Only reset on actual Teams domains, not login pages or error pages.
+  if (authRecoveryTriggered && isTeamsDomain(currentUrl)) {
+    authRecoveryTriggered = false;
+    console.info('[AUTH_RECOVERY] Recovery guard reset after successful Teams load');
+    if (config?.auth?.diagnosticLogging) {
+      authDiagnostics.logRecoveryAction('guard-reset');
+    }
   }
 
   window.webContents.executeJavaScript(`
