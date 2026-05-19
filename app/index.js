@@ -391,6 +391,25 @@ if (gotTheLock) {
       console.error("[Renderer] Failed to log window-error:", err);
     }
   });
+
+  // Log important renderer-side auth lifecycle events to the main log file.
+  ipcMain.on("auth-event-log", (_event, logData) => {
+    try {
+      if (!isMainWindowSender(_event.sender)) return;
+
+      const level = normalizeRendererLogLevel(logData?.level);
+      const message = sanitizeRendererLogField(logData?.message, "[RendererAuth] event");
+      const data = sanitizeRendererLogObject(logData?.data);
+
+      if (data && Object.keys(data).length > 0) {
+        console[level](`[RendererAuth] ${message}`, data);
+      } else {
+        console[level](`[RendererAuth] ${message}`);
+      }
+    } catch (err) {
+      console.error("[RendererAuth] Failed to log auth event:", err);
+    }
+  });
 } else {
   console.info("App already running");
   app.quit();
@@ -425,6 +444,45 @@ function sanitizeRendererLogField(value, fallback = null) {
   return redacted.length > MAX_RENDERER_LOG_FIELD_LENGTH
     ? `${redacted.slice(0, MAX_RENDERER_LOG_FIELD_LENGTH)}…`
     : redacted;
+}
+
+function sanitizeRendererLogObject(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const sanitized = {};
+  for (const [key, item] of Object.entries(value).slice(0, 20)) {
+    const safeKey = sanitizeRendererLogField(key, null);
+    if (!safeKey) continue;
+
+    if (typeof item === "string") {
+      sanitized[safeKey] = sanitizeRendererLogField(item, "");
+    } else if (typeof item === "number") {
+      sanitized[safeKey] = toFiniteNumber(item, 0);
+    } else if (typeof item === "boolean" || item === null) {
+      sanitized[safeKey] = item;
+    } else {
+      sanitized[safeKey] = sanitizeRendererLogField(String(item), "");
+    }
+  }
+
+  return sanitized;
+}
+
+function normalizeRendererLogLevel(level) {
+  return ["error", "warn", "info", "debug"].includes(level) ? level : "info";
+}
+
+function isMainWindowSender(sender) {
+  const mainWindow = mainAppWindow.getWindow?.();
+  return !!(
+    sender &&
+    mainWindow &&
+    !mainWindow.isDestroyed() &&
+    mainWindow.webContents &&
+    sender.id === mainWindow.webContents.id
+  );
 }
 
 /**

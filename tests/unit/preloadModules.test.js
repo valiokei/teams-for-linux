@@ -21,7 +21,7 @@ const { join } = require('node:path');
 // Set declaration is a stable invariant the rule depends on.
 
 const PRELOAD_PATH = join(__dirname, '..', '..', 'app', 'browser', 'preload.js');
-const REQUIRED_MODULES = ['settings', 'theme', 'trayIconRenderer', 'mqttStatusMonitor', 'webauthnOverride'];
+const REQUIRED_MODULES = ['reactHandler', 'settings', 'theme', 'trayIconRenderer', 'mqttStatusMonitor', 'webauthnOverride'];
 const REQUIRED_INITIALIZED_MODULES = ['reactHandler'];
 
 function extractModuleNames(source) {

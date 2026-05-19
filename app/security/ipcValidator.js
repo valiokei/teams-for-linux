@@ -93,7 +93,8 @@ const allowedChannels = new Set([
   'quick-chat:show',
   'quick-chat:hide',
 
-  // Renderer-side error forwarding (registered in app/browser/preload.js)
+  // Renderer-side diagnostics forwarding (registered in app/browser/preload.js)
+  'auth-event-log',
   'unhandled-rejection',
   'window-error',
 

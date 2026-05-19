@@ -7,18 +7,20 @@ class ReactHandler {
   _tokenRefreshInterval = null;
   _tokenRefreshInitialTimeout = null;
   _tokenRefreshInProgress = false;
+  _ipcRenderer = null;
 
   /**
    * Initialize the ReactHandler (for compatibility with preload module loading)
    * @param {object} config - Application configuration
    */
-  init(config) {
+  init(config, ipcRenderer = null) {
     this.config = config;
+    this._ipcRenderer = ipcRenderer;
     if (config?.auth?.useMainProcessSafeStorage !== false) {
       TokenCache.enableIpcMode();
-      console.info('[TOKEN_CACHE] Main-process safeStorage enabled');
+      this._logAuthEvent('info', '[TOKEN_CACHE] Main-process safeStorage enabled');
     } else {
-      console.info('[TOKEN_CACHE] Main-process safeStorage disabled');
+      this._logAuthEvent('info', '[TOKEN_CACHE] Main-process safeStorage disabled');
     }
     this._configureTokenRefresh(config);
   }
@@ -195,12 +197,12 @@ class ReactHandler {
       });
 
       if (result?.success) {
-        console.info('[TOKEN_REFRESH] Silent token refresh completed', {
+        this._logAuthEvent('info', '[TOKEN_REFRESH] Silent token refresh completed', {
           reason,
           fromCache: result.fromCache === true,
         });
       } else {
-        console.warn('[TOKEN_REFRESH] Silent token refresh failed', {
+        this._logAuthEvent('warn', '[TOKEN_REFRESH] Silent token refresh failed', {
           reason,
           error: this._sanitizeRefreshError(result?.error),
         });
@@ -208,7 +210,7 @@ class ReactHandler {
 
       return result;
     } catch (error) {
-      console.warn('[TOKEN_REFRESH] Silent token refresh threw', {
+      this._logAuthEvent('warn', '[TOKEN_REFRESH] Silent token refresh threw', {
         reason,
         error: this._sanitizeRefreshError(error?.message || String(error)),
       });
@@ -269,7 +271,7 @@ class ReactHandler {
 
     this._clearTokenRefreshTimers();
     if (!enabled) {
-      console.info('[TOKEN_REFRESH] Proactive token refresh disabled');
+      this._logAuthEvent('info', '[TOKEN_REFRESH] Proactive token refresh disabled');
       return;
     }
 
@@ -286,7 +288,7 @@ class ReactHandler {
       this.refreshAuthTokens('interval');
     }, intervalMs);
 
-    console.info('[TOKEN_REFRESH] Proactive token refresh enabled', {
+    this._logAuthEvent('info', '[TOKEN_REFRESH] Proactive token refresh enabled', {
       intervalHours,
     });
   }
@@ -319,6 +321,26 @@ class ReactHandler {
       .replaceAll(/Trace ID: [^.\n]+/g, 'Trace ID: [redacted]')
       .replaceAll(/Correlation ID: [^.\n]+/g, 'Correlation ID: [redacted]')
       .replaceAll(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/g, '[email]');
+  }
+
+  _logAuthEvent(level, message, data = null) {
+    const logFn = console[level] || console.info;
+    if (data) {
+      logFn(message, data);
+    } else {
+      logFn(message);
+    }
+
+    try {
+      this._ipcRenderer?.send('auth-event-log', {
+        level,
+        message,
+        data,
+        timestamp: Date.now(),
+      });
+    } catch {
+      // Best-effort diagnostics only; never break Teams startup.
+    }
   }
 
   _validateTeamsEnvironment() {
