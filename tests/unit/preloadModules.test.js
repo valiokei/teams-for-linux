@@ -22,6 +22,15 @@ const { join } = require('node:path');
 
 const PRELOAD_PATH = join(__dirname, '..', '..', 'app', 'browser', 'preload.js');
 const REQUIRED_MODULES = ['settings', 'theme', 'trayIconRenderer', 'mqttStatusMonitor', 'webauthnOverride'];
+const REQUIRED_INITIALIZED_MODULES = ['reactHandler'];
+
+function extractModuleNames(source) {
+	const match = source.match(/const\s+modules\s*=\s*\[([\s\S]*?)\];/);
+	if (!match) {
+		return null;
+	}
+	return [...match[1].matchAll(/name:\s*["']([^"']+)["']/g)].map((m) => m[1]);
+}
 
 describe('preload.js modulesRequiringIpc Set', () => {
 	const source = readFileSync(PRELOAD_PATH, 'utf8');
@@ -58,6 +67,25 @@ describe('preload.js modulesRequiringIpc Set', () => {
 				`"${name}" missing from \`modulesRequiringIpc\` in app/browser/preload.js. ` +
 					'This module needs `ipcRenderer` during init or its IPC calls throw silently. ' +
 					'See CLAUDE.md "Modules Requiring IPC Initialization" and issue #1902.'
+			);
+		});
+	}
+});
+
+describe('preload.js browser module initialization', () => {
+	const source = readFileSync(PRELOAD_PATH, 'utf8');
+	const moduleNames = extractModuleNames(source);
+
+	it('declares the browser modules array', () => {
+		assert.ok(moduleNames, 'Could not find `const modules = [...]` in app/browser/preload.js.');
+	});
+
+	for (const name of REQUIRED_INITIALIZED_MODULES) {
+		it(`initializes "${name}"`, () => {
+			assert.ok(
+				moduleNames?.includes(name),
+				`"${name}" missing from the preload browser modules array. ` +
+					'It must run init(config) so token refresh and token-cache configuration are active.'
 			);
 		});
 	}

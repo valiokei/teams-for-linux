@@ -369,6 +369,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     
     // Initialize other modules safely
     const modules = [
+      { name: "reactHandler", path: "./tools/reactHandler" },
       { name: "zoom", path: "./tools/zoom" },
       { name: "shortcuts", path: "./tools/shortcuts" },
       { name: "settings", path: "./tools/settings" },

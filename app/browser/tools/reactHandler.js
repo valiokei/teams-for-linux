@@ -14,8 +14,11 @@ class ReactHandler {
    */
   init(config) {
     this.config = config;
-    if (config?.auth?.useMainProcessSafeStorage) {
+    if (config?.auth?.useMainProcessSafeStorage !== false) {
       TokenCache.enableIpcMode();
+      console.info('[TOKEN_CACHE] Main-process safeStorage enabled');
+    } else {
+      console.info('[TOKEN_CACHE] Main-process safeStorage disabled');
     }
     this._configureTokenRefresh(config);
   }
