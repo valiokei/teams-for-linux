@@ -11,8 +11,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Development:**
 - `npm start` - Run application in development mode with trace warnings
+- `npm run start:dev` - Run without sandbox (useful for debugging permission issues)
 - `npm run lint` - Run ESLint validation (mandatory before commits)
+- `npm run test:unit` - Run unit tests (Node.js built-in test runner)
 - `npm run test:e2e` - Run end-to-end tests with Playwright
+- `npm run test:authenticated` - Run E2E tests requiring actual Microsoft login
 
 **Building:**
 - `npm run pack` - Development build without packaging
@@ -22,6 +25,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Utility:**
 - `npm run generate-release-info` - Generate release information file
 - `npm run generate-ipc-docs` - Generate IPC API documentation from code comments
+- `npm run cross-distro` - Run cross-distribution smoke tests locally
+- `npm run cross-distro:list` - List available cross-distro test environments
 
 **Release:**
 - Releases are managed by [release-please](https://github.com/googleapis/release-please) — merge the auto-generated Release PR to trigger a release
@@ -105,6 +110,10 @@ console.error('[AUTH] Authentication failed', { errorCode: err.code });
 - `console.info` - Key state changes (startup, connection established)
 - `console.debug` - Development debugging only (use sparingly)
 
+**Log Sanitization:**
+
+All application logs are automatically sanitized via `electron-log` hooks configured in `app/config/logger.js`. The sanitizer utility (`app/utils/logSanitizer.js`) redacts PII patterns (emails, tokens, IP addresses, UUIDs, credentials) at the transport level. Manual removal of PII from log arguments is not required for standard logging — add new patterns to `app/utils/logSanitizer.js` if a sensitive format is missed.
+
 **When adding new logs:**
 1. Ask: "Is this log necessary in production?"
 2. Ask: "Could this log expose sensitive information?"
@@ -186,10 +195,12 @@ When adding or modifying IPC channels, you must:
 
 **CRITICAL: DO NOT REMOVE** - The `trayIconRenderer` and `mqttStatusMonitor` modules **MUST** be included in the list of modules that receive `ipcRenderer` during initialization in `app/browser/preload.js`.
 
+**Current location: `app/browser/preload.js`** — a `Set` named `modulesRequiringIpc` controls which modules receive `ipcRenderer`.
+
 ```javascript
 // REQUIRED: These modules need ipcRenderer for IPC communication
-const modulesRequiringIpc = ["settings", "theme", "trayIconRenderer", "mqttStatusMonitor"];
-if (modulesRequiringIpc.includes(module.name)) {
+const modulesRequiringIpc = new Set(["settings", "theme", "trayIconRenderer", "mqttStatusMonitor"]);
+if (modulesRequiringIpc.has(module.name)) {
   moduleInstance.init(config, ipcRenderer);
 }
 ```
@@ -202,8 +213,8 @@ if (modulesRequiringIpc.includes(module.name)) {
 - Most recently addressed in issue #1902
 
 **When modifying preload.js:**
-- Always verify `trayIconRenderer` and `mqttStatusMonitor` are in the condition that passes `ipcRenderer` to `init()`
-- Do NOT remove these modules from the list, even if they seem redundant
+- Always verify `trayIconRenderer` and `mqttStatusMonitor` are in the `modulesRequiringIpc` set
+- Do NOT remove these modules from the set, even if they seem redundant
 - Test tray icon functionality and MQTT status publishing thoroughly after any changes to module initialization
 - Reference this documentation if unclear why these modules need special handling
 

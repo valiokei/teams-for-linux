@@ -12,7 +12,11 @@
       "mcp__github__get_issue",
       "Bash(git worktree:*)",
       "Bash(grep:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(npm run *)",
+      "Bash(chmod +x dist/linux-unpacked/teams-for-linux-custom)",
+      "Bash(git add *)",
+      "Bash(gh auth *)"
     ],
     "deny": [],
     "ask": []
