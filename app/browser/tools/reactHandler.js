@@ -1,5 +1,9 @@
 // Import token cache for authentication provider integration
 const TokenCache = require('./tokenCache');
+const {
+  getResourceLabel,
+  normalizeTokenRefreshResources,
+} = require('./tokenRefreshResources');
 
 class ReactHandler {
   _validationEnabled = true;
@@ -117,9 +121,17 @@ class ReactHandler {
    * @returns {Promise<object>} Token acquisition result
    */
   async acquireToken(resource = 'https://graph.microsoft.com', options = {}) {
+    const {
+      logPrefix = '[GRAPH_API]',
+      quietFailures = false,
+      ...tokenAcquireOptions
+    } = options || {};
+
     try {
       if (!this._validateTeamsEnvironment()) {
-        console.warn('[GRAPH_API] Teams environment not validated');
+        if (!quietFailures) {
+          console.warn(`${logPrefix} Teams environment not validated`);
+        }
         return { success: false, error: 'Teams environment not validated' };
       }
 
@@ -128,12 +140,16 @@ class ReactHandler {
       const authProvider = authService?._coreAuthService?._authProvider;
 
       if (!authProvider) {
-        console.warn('[GRAPH_API] Auth provider not available');
+        if (!quietFailures) {
+          console.warn(`${logPrefix} Auth provider not available`);
+        }
         return { success: false, error: 'Auth provider not found' };
       }
 
       if (typeof authProvider.acquireToken !== 'function') {
-        console.error('[GRAPH_API] acquireToken method not available');
+        if (!quietFailures) {
+          console.error(`${logPrefix} acquireToken method not available`);
+        }
         return { success: false, error: 'acquireToken method not found' };
       }
 
@@ -143,18 +159,18 @@ class ReactHandler {
       // Merge default options with provided options
       const tokenOptions = {
         correlation: correlation,
-        forceRenew: options.forceRenew || false,
-        forceRefresh: options.forceRefresh || false,
-        skipCache: options.skipCache || false,
-        prompt: options.prompt || 'none',
-        ...options
+        forceRenew: tokenAcquireOptions.forceRenew || false,
+        forceRefresh: tokenAcquireOptions.forceRefresh || false,
+        skipCache: tokenAcquireOptions.skipCache || false,
+        prompt: tokenAcquireOptions.prompt || 'none',
+        ...tokenAcquireOptions
       };
 
-      console.debug(`[GRAPH_API] Acquiring token for resource: ${resource}`);
+      console.debug(`${logPrefix} Acquiring token for resource: ${getResourceLabel(resource)}`);
       const result = await authProvider.acquireToken(resource, tokenOptions);
 
       if (result && result.token) {
-        console.debug('[GRAPH_API] Token acquired successfully', {
+        console.debug(`${logPrefix} Token acquired successfully`, {
           hasToken: true,
           fromCache: result.fromCache,
           expiry: result.expiresOn || result.expires_on
@@ -168,12 +184,16 @@ class ReactHandler {
           timestamp: Date.now()
         };
       } else {
-        console.warn('[GRAPH_API] Token acquisition returned no result');
+        if (!quietFailures) {
+          console.warn(`${logPrefix} Token acquisition returned no result`);
+        }
         return { success: false, error: 'No token in result' };
       }
 
     } catch (error) {
-      console.error('[GRAPH_API] Token acquisition failed:', error);
+      if (!quietFailures) {
+        console.error(`${logPrefix} Token acquisition failed:`, error);
+      }
       return {
         success: false,
         error: error.message || error.toString(),
@@ -189,26 +209,41 @@ class ReactHandler {
 
     try {
       this._tokenRefreshInProgress = true;
-      const result = await this.acquireToken('https://graph.microsoft.com', {
-        forceRenew: true,
-        forceRefresh: true,
-        skipCache: true,
-        prompt: 'none',
-      });
+      const attempts = [];
 
-      if (result?.success) {
-        this._logAuthEvent('info', '[TOKEN_REFRESH] Silent token refresh completed', {
-          reason,
-          fromCache: result.fromCache === true,
+      for (const resource of this._getRefreshResources()) {
+        const result = await this.acquireToken(resource, {
+          forceRenew: true,
+          forceRefresh: true,
+          skipCache: true,
+          prompt: 'none',
+          logPrefix: '[TOKEN_REFRESH]',
+          quietFailures: true,
         });
-      } else {
-        this._logAuthEvent('warn', '[TOKEN_REFRESH] Silent token refresh failed', {
-          reason,
+
+        if (result?.success) {
+          this._logAuthEvent('info', '[TOKEN_REFRESH] Silent token refresh completed', {
+            reason,
+            resource: getResourceLabel(resource),
+            fromCache: result.fromCache === true,
+          });
+          return { ...result, resource };
+        }
+
+        attempts.push({
+          resource: getResourceLabel(resource),
           error: this._sanitizeRefreshError(result?.error),
         });
       }
 
-      return result;
+      const errorSummary = attempts
+        .map(({ resource, error }) => `${resource}: ${error}`)
+        .join(' | ');
+      this._logAuthEvent('warn', '[TOKEN_REFRESH] Silent token refresh failed', {
+        reason,
+        attempts: errorSummary,
+      });
+      return { success: false, error: errorSummary };
     } catch (error) {
       this._logAuthEvent('warn', '[TOKEN_REFRESH] Silent token refresh threw', {
         reason,
@@ -311,6 +346,13 @@ class ReactHandler {
       return 1;
     }
     return Math.min(24, Math.max(1, parsed));
+  }
+
+  _getRefreshResources() {
+    return normalizeTokenRefreshResources(
+      this.config || {},
+      globalThis.location?.origin || ''
+    );
   }
 
   _sanitizeRefreshError(error) {

@@ -194,6 +194,7 @@ The state file is automatically cleaned up when the app exits.
 | `auth.useMainProcessSafeStorage` | `boolean` | `true` | Use main-process safeStorage for Teams token cache encryption/decryption, avoiding renderer keyring issues after suspend/resume |
 | `tokenRefresh.enabled` | `boolean` | `true` | Enable proactive silent auth token refresh to keep long-running Teams sessions warm |
 | `tokenRefresh.refreshIntervalHours` | `number` | `1` | Silent refresh interval, clamped between 1 and 24 hours |
+| `tokenRefresh.resources` | `array` | Built-in Teams resource list | Optional HTTPS resource origins to try before the built-in Teams/Graph refresh resources |
 
 #### Basic Authentication
 
