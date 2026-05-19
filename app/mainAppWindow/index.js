@@ -20,6 +20,12 @@ require("../appConfiguration");
 const ConnectionManager = require("../connectionManager");
 const BrowserWindowManager = require("../mainAppWindow/browserWindowManager");
 const authDiagnostics = require("../browser/tools/authDiagnostics");
+const {
+  getAuthFailureReason,
+  hasAuthFailureSignal,
+  hasTrustedAuthSource,
+  isWorkerAuthSignal,
+} = require("./authRecoveryDetection");
 const os = require("node:os");
 const path = require("node:path");
 
@@ -53,6 +59,7 @@ let menus = null;
 // Teams page load so that transient failures don't permanently disable
 // automatic recovery.
 let authRecoveryTriggered = false;
+let callActive = false;
 
 const isMac = os.platform() === "darwin";
 
@@ -360,6 +367,16 @@ async function cleanExpiredAuthCookies(windowSession, forceCleanAll = false) {
  * the page to force a fresh interactive login.
  */
 async function triggerAuthRecovery() {
+  if (!(await isNetworkReadyForAuthRecovery())) {
+    authRecoveryTriggered = false;
+    console.info('[AUTH_RECOVERY] Recovery deferred until network is available');
+    if (config?.auth?.diagnosticLogging) {
+      authDiagnostics.logRecoveryAction('deferred-offline');
+    }
+    connectionManager?.debouncedRefresh?.();
+    return;
+  }
+
   console.info('[AUTH_RECOVERY] Clearing auth state and reloading...');
   if (config?.auth?.diagnosticLogging) {
     authDiagnostics.logRecoveryAction('triggered');
@@ -393,6 +410,60 @@ async function triggerAuthRecovery() {
 
   console.info('[AUTH_RECOVERY] Reloading for fresh auth...');
   window.loadURL(config.url, { userAgent: config.chromeUserAgent });
+}
+
+async function isNetworkReadyForAuthRecovery() {
+  if (!connectionManager || typeof connectionManager.isOnline !== "function") {
+    return true;
+  }
+
+  try {
+    return await connectionManager.isOnline();
+  } catch (err) {
+    console.warn("[AUTH_RECOVERY] Network readiness check failed:", err.message);
+    return false;
+  }
+}
+
+function isMainWindowSender(sender) {
+  return !!(
+    sender &&
+    window &&
+    !window.isDestroyed() &&
+    window.webContents &&
+    sender.id === window.webContents.id
+  );
+}
+
+function scheduleAuthRecovery(signal = {}, source = "unknown") {
+  if (authRecoveryTriggered) return false;
+  if (!hasAuthFailureSignal(signal)) return false;
+
+  // Auth recovery clears local state, so only trust signals that include a
+  // Microsoft/Teams source. Renderer-forwarded events are additionally tied
+  // to the main Teams webContents by handleRendererAuthFailure().
+  if (!hasTrustedAuthSource(signal)) return false;
+
+  if (callActive && isWorkerAuthSignal(signal)) {
+    if (config?.auth?.diagnosticLogging) {
+      authDiagnostics.logRecoveryAction("suppressed-during-call", { source });
+    }
+    return false;
+  }
+
+  const reason = getAuthFailureReason(signal);
+  authRecoveryTriggered = true;
+  console.info("[AUTH_RECOVERY] Auth failure detected, scheduling recovery", {
+    source,
+    reason,
+  });
+  if (config?.auth?.diagnosticLogging) {
+    authDiagnostics.logRecoveryAction("scheduled", { source, reason });
+  }
+
+  // Delay to let Teams' own retry mechanism attempt recovery first.
+  setTimeout(() => triggerAuthRecovery(), 5000);
+  return true;
 }
 
 exports.onAppReady = async function onAppReady(configGroup, customBackground, sharingService, profilesManager = null) {
@@ -478,40 +549,24 @@ exports.onAppReady = async function onAppReady(configGroup, customBackground, sh
   // "We need you to sign in again" stale banner (#2296)
   await cleanExpiredAuthCookies(window.webContents.session);
 
-  // Monitor renderer console for MSAL silent auth failures.
-  // When Teams can't refresh tokens silently (e.g., after overnight idle),
-  // it logs InteractionRequired. We detect this, clear stale auth state,
-  // and reload to force a clean interactive login.
-  const AUTH_FAILURE_PATTERNS = ['InteractionRequired'];
-  // Only trust auth failure signals from Teams/Microsoft origins
-  const TRUSTED_AUTH_SOURCES = ['teams.cloud.microsoft', 'teams.microsoft.com', 'login.microsoftonline.com'];
+  // Monitor renderer console for MSAL silent auth failures. Some auth failures
+  // are also forwarded through the preload's unhandled-rejection/window-error
+  // IPC channels; those are handled by handleRendererAuthFailure() below.
   // Worker UPRs are transient during active calls (#2428); suppress them only while
   // a call is in progress so startup recovery still works for stale-token loops (#2480).
-  let callActive = false;
   app.on('teams-call-connected', () => { callActive = true; });
   app.on('teams-call-disconnected', () => { callActive = false; });
   // Page reload (including renderer crash recovery) resets renderer-side call state,
   // so clear the flag to avoid getting stuck if 'teams-call-disconnected' was missed.
   window.webContents.on('did-navigate', () => { callActive = false; });
   window.webContents.on('console-message', (event) => {
-    if (authRecoveryTriggered) return;
-    const message = event.message || '';
-    if (!AUTH_FAILURE_PATTERNS.some(p => message.includes(p))) return;
-
-    // Verify the message originates from a trusted Microsoft source
-    const sourceId = event.sourceId || '';
-    if (sourceId && !TRUSTED_AUTH_SOURCES.some(s => sourceId.includes(s))) return;
-
-    if (sourceId.includes('/worker/') && callActive) return;
-
-    authRecoveryTriggered = true;
-    console.info('[AUTH_RECOVERY] Auth failure detected, scheduling recovery');
-    if (config?.auth?.diagnosticLogging) {
-      authDiagnostics.logRecoveryAction('triggered', { sourceId: event.sourceId || 'unknown' });
-    }
-
-    // Delay to let Teams' own retry mechanism attempt recovery first
-    setTimeout(() => triggerAuthRecovery(), 5000);
+    scheduleAuthRecovery(
+      {
+        message: event.message || "",
+        sourceId: event.sourceId || "",
+      },
+      "console-message"
+    );
   });
 
   login.handleLoginDialogTry(window, config.ssoBasicAuthUser, config.ssoBasicAuthPasswordCommand);
@@ -537,6 +592,17 @@ exports.show = function () {
 
 exports.getWindow = function () {
   return window;
+};
+
+exports.handleRendererAuthFailure = function handleRendererAuthFailure(sender, errorData, source) {
+  if (!isMainWindowSender(sender)) {
+    return false;
+  }
+
+  return scheduleAuthRecovery(
+    errorData,
+    source
+  );
 };
 
 exports.bindDisplayMediaHandler = bindDisplayMediaHandler;

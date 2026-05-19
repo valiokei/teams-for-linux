@@ -21,7 +21,7 @@ In the stable version of teams-for-linux, users are forced to re-authenticate **
 |---|--|--|
 | **Phase 1** — Diagnostic logging | Logs auth state, navigation, suspend/resume events. Timestamps allow correlating with syslog entries. PII-safe. | Opt-in (`auth.diagnosticLogging`) |
 | **Phase 2** — Recovery guard reset | `authRecoveryTriggered` is reset to `false` after a successful Teams page load, so recovery can fire **multiple times** across many days. | **Always active** |
-| **Phase 3** — IPC safeStorage | Token encryption/decryption moves to the main process, which retains a stable D-Bus context. Old localStorage token format is protected. | Opt-in (`auth.useMainProcessSafeStorage`) |
+| **Phase 3** — IPC safeStorage | Token encryption/decryption moves to the main process, which retains a stable D-Bus context. Old localStorage token format is protected. | Default on (`auth.useMainProcessSafeStorage`) |
 
 ---
 
@@ -104,16 +104,16 @@ The `authRecoveryTriggered` flag was a local variable inside `onAppReady()`, nev
 - `safe-storage-encrypt` — encryption
 - `safe-storage-decrypt` — decryption
 
-### Opt-in mechanism
-All new functionality is disabled by default. Requires:
+### Configuration
+Main-process safeStorage is enabled by default. It can be disabled with:
 ```json
-{ "auth": { "useMainProcessSafeStorage": true } }
+{ "auth": { "useMainProcessSafeStorage": false } }
 ```
 
 ### Specific changes
 - `app/browser/tools/tokenCache.js`: enable/disable IPC mode via `enableIpcMode()`
 - `app/browser/tools/reactHandler.js`: `init()` calls `TokenCache.enableIpcMode()` when configured
-- `app/config/index.js`: new field `useMainProcessSafeStorage: false`
+- `app/config/index.js`: new field `useMainProcessSafeStorage: true`
 - `app/index.js`: three new IPC handlers
 - `app/security/ipcValidator.js`: three new allowlisted channels
 
@@ -125,6 +125,6 @@ localStorage stores identical base64 strings in both paths. **No migration neede
 |---|---|
 | `app/browser/tools/tokenCache.js` | `enableIpcMode()`, `_useIpcSafeStorage`, IPC paths in `_getSecureItem()` and `_setSecureItem()` |
 | `app/browser/tools/reactHandler.js` | `init()` enables IPC if configured |
-| `app/config/index.js` | `useMainProcessSafeStorage: false` |
+| `app/config/index.js` | `useMainProcessSafeStorage: true` |
 | `app/index.js` | IPC handlers: check / encrypt / decrypt |
 | `app/security/ipcValidator.js` | New channels: `safe-storage-*` |

@@ -9,7 +9,7 @@ Phase 3 moves safeStorage encryption/decryption from renderer-side to the main p
 ## 1. `app/browser/tools/tokenCache.js`
 
 ### New method `enableIpcMode()`
-Allows activating IPC mode once the `auth.useMainProcessSafeStorage` config has been loaded.
+Allows activating IPC mode once the `auth.useMainProcessSafeStorage` config has been loaded. This mode is enabled by default.
 
 ### `require('electron')` now includes `ipcRenderer`
 Before: `const { safeStorage } = require('electron');`
@@ -38,7 +38,7 @@ if (config?.auth?.useMainProcessSafeStorage) {
 
 ## 3. `app/config/index.js`
 
-New configuration option: `auth.useMainProcessSafeStorage` (default `false`).
+New configuration option: `auth.useMainProcessSafeStorage` (default `true`).
 
 ## 4. `app/index.js`
 

@@ -286,7 +286,7 @@ if (gotTheLock) {
 
   // SafeStorage IPC handlers — allow renderer to use OS-level encryption
   // via the main process, which has the correct D-Bus/keyring context.
-  // This is opt-in via auth.useMainProcessSafeStorage (default false).
+  // This is enabled by default via auth.useMainProcessSafeStorage.
   ipcMain.handle("safe-storage-check", async () => {
     try {
       const { safeStorage } = require("electron");
@@ -361,6 +361,11 @@ if (gotTheLock) {
         stack: sanitizeRendererLogField(errorData?.stack),
         timestamp: toFiniteNumber(errorData?.timestamp, Date.now()),
       });
+      mainAppWindow.handleRendererAuthFailure(
+        _event.sender,
+        errorData,
+        "unhandled-rejection"
+      );
     } catch (err) {
       console.error("[Renderer] Failed to log unhandled-rejection:", err);
     }
@@ -377,6 +382,11 @@ if (gotTheLock) {
         errorStack: sanitizeRendererLogField(errorData?.errorStack),
         timestamp: toFiniteNumber(errorData?.timestamp, Date.now()),
       });
+      mainAppWindow.handleRendererAuthFailure(
+        _event.sender,
+        errorData,
+        "window-error"
+      );
     } catch (err) {
       console.error("[Renderer] Failed to log window-error:", err);
     }

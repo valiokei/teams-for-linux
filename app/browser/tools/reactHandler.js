@@ -4,6 +4,9 @@ const TokenCache = require('./tokenCache');
 class ReactHandler {
   _validationEnabled = true;
   _tokenCacheInjected = false;
+  _tokenRefreshInterval = null;
+  _tokenRefreshInitialTimeout = null;
+  _tokenRefreshInProgress = false;
 
   /**
    * Initialize the ReactHandler (for compatibility with preload module loading)
@@ -14,6 +17,7 @@ class ReactHandler {
     if (config?.auth?.useMainProcessSafeStorage) {
       TokenCache.enableIpcMode();
     }
+    this._configureTokenRefresh(config);
   }
 
   getCommandChangeReportingService() {
@@ -173,6 +177,44 @@ class ReactHandler {
     }
   }
 
+  async refreshAuthTokens(reason = 'scheduled') {
+    if (this._tokenRefreshInProgress) {
+      return { success: false, skipped: 'in-progress' };
+    }
+
+    try {
+      this._tokenRefreshInProgress = true;
+      const result = await this.acquireToken('https://graph.microsoft.com', {
+        forceRenew: true,
+        forceRefresh: true,
+        skipCache: true,
+        prompt: 'none',
+      });
+
+      if (result?.success) {
+        console.info('[TOKEN_REFRESH] Silent token refresh completed', {
+          reason,
+          fromCache: result.fromCache === true,
+        });
+      } else {
+        console.warn('[TOKEN_REFRESH] Silent token refresh failed', {
+          reason,
+          error: this._sanitizeRefreshError(result?.error),
+        });
+      }
+
+      return result;
+    } catch (error) {
+      console.warn('[TOKEN_REFRESH] Silent token refresh threw', {
+        reason,
+        error: this._sanitizeRefreshError(error?.message || String(error)),
+      });
+      return { success: false, error: error?.message || String(error) };
+    } finally {
+      this._tokenRefreshInProgress = false;
+    }
+  }
+
   // Attempt to inject token cache into Teams authentication provider
   _attemptTokenCacheInjection(authProvider) {
     try {
@@ -216,6 +258,64 @@ class ReactHandler {
 
     const requiredMethods = ['getItem', 'setItem', 'removeItem', 'clear'];
     return requiredMethods.every(method => typeof tokenCache[method] === 'function');
+  }
+
+  _configureTokenRefresh(config = {}) {
+    const tokenRefreshConfig = config.tokenRefresh || config.auth?.tokenRefresh || {};
+    const enabled = tokenRefreshConfig.enabled !== false;
+
+    this._clearTokenRefreshTimers();
+    if (!enabled) {
+      console.info('[TOKEN_REFRESH] Proactive token refresh disabled');
+      return;
+    }
+
+    const intervalHours = this._getRefreshIntervalHours(tokenRefreshConfig.refreshIntervalHours);
+    const intervalMs = intervalHours * 60 * 60 * 1000;
+
+    // Delay the first refresh so Teams can finish bootstrapping its auth provider.
+    const initialDelayMs = Math.min(10 * 60 * 1000, intervalMs);
+    this._tokenRefreshInitialTimeout = setTimeout(() => {
+      this.refreshAuthTokens('initial-delay');
+    }, initialDelayMs);
+
+    this._tokenRefreshInterval = setInterval(() => {
+      this.refreshAuthTokens('interval');
+    }, intervalMs);
+
+    console.info('[TOKEN_REFRESH] Proactive token refresh enabled', {
+      intervalHours,
+    });
+  }
+
+  _clearTokenRefreshTimers() {
+    if (this._tokenRefreshInitialTimeout) {
+      clearTimeout(this._tokenRefreshInitialTimeout);
+      this._tokenRefreshInitialTimeout = null;
+    }
+
+    if (this._tokenRefreshInterval) {
+      clearInterval(this._tokenRefreshInterval);
+      this._tokenRefreshInterval = null;
+    }
+  }
+
+  _getRefreshIntervalHours(refreshIntervalHours) {
+    const parsed = Number(refreshIntervalHours);
+    if (!Number.isFinite(parsed)) {
+      return 1;
+    }
+    return Math.min(24, Math.max(1, parsed));
+  }
+
+  _sanitizeRefreshError(error) {
+    if (!error) {
+      return 'unknown';
+    }
+    return String(error)
+      .replaceAll(/Trace ID: [^.\n]+/g, 'Trace ID: [redacted]')
+      .replaceAll(/Correlation ID: [^.\n]+/g, 'Correlation ID: [redacted]')
+      .replaceAll(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/g, '[email]');
   }
 
   _validateTeamsEnvironment() {

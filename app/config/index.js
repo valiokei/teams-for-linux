@@ -578,6 +578,14 @@ function extractYargConfig(configObject, appVersion) {
         describe: "Microsoft Graph API integration for enhanced Teams functionality (calendar, user profile, etc.)",
         type: "object",
       },
+      tokenRefresh: {
+        default: {
+          enabled: true,
+          refreshIntervalHours: 1,
+        },
+        describe: "Proactive silent token refresh configuration. enabled: keep Teams auth warm in long-running sessions. refreshIntervalHours: refresh interval clamped between 1 and 24 hours.",
+        type: "object",
+      },
       auth: {
         default: {
           intune: {
@@ -589,7 +597,7 @@ function extractYargConfig(configObject, appVersion) {
             debug: false,
           },
           diagnosticLogging: false,
-          useMainProcessSafeStorage: false,
+          useMainProcessSafeStorage: true,
         },
         describe: "Authentication configuration. auth.webauthn.enabled turns on hardware security key support on Linux (requires fido2-tools). auth.webauthn.debug enables verbose diagnostic logs, intended for beta testers only. auth.diagnosticLogging enables PII-safe authentication diagnostics. auth.useMainProcessSafeStorage moves safeStorage operations to the main process.",
         type: "object",

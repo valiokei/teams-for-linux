@@ -53,6 +53,7 @@ async function logAuthDiagnostics(config, window) {
     partition: partition,
     partitionPersistent: isPersistent,
     safeStorageAvailable: safeStorageAvailable,
+    mainProcessSafeStorage: config?.auth?.useMainProcessSafeStorage !== false,
     emulateWinChromiumPlatform: config?.emulateWinChromiumPlatform || false,
     intuneEnabled: config?.auth?.intune?.enabled || config?.ssoInTuneEnabled || false,
     multiAccountEnabled: config?.multiAccount?.enabled || false,

@@ -30,7 +30,7 @@ class TeamsTokenCache {
     this._securePrefix = 'secure_teams_';
 
     // IPC mode: use main-process safeStorage instead of renderer-side
-    // (opt-in via auth.useMainProcessSafeStorage, default false)
+    // (default on via auth.useMainProcessSafeStorage)
     this._useIpcSafeStorage = false;
 
     this._initializeSecureStorage();
