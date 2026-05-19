@@ -127,7 +127,14 @@ const allowedChannels = new Set([
   // (no allowlist needed for that direction).
   'manage-profile-rename',
   'manage-profile-remove',
-  'manage-profile-close'
+  'manage-profile-close',
+
+  // SafeStorage IPC — allow renderer to encrypt/decrypt/check OS-level
+  // encryption via the main process, which retains the correct D-Bus/keyring
+  // context.  Opt-in via auth.useMainProcessSafeStorage (default false).
+  'safe-storage-check',
+  'safe-storage-encrypt',
+  'safe-storage-decrypt'
 ]);
 
 const DANGEROUS_PROPS = new Set(['__proto__', 'constructor', 'prototype']);

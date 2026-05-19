@@ -2,7 +2,7 @@
 // Simplified secure storage implementation using Electron safeStorage API
 // Addresses issue #1357 - Authentication refresh fails due to missing _tokenCache interface
 
-const { safeStorage } = require('electron');
+const { safeStorage, ipcRenderer } = require('electron');
 
 /**
  * TeamsTokenCache - Simplified localStorage-compatible token cache with secure storage
@@ -24,17 +24,35 @@ class TeamsTokenCache {
     this._isAvailable = this._checkLocalStorageAvailability();
     this._memoryFallback = new Map();
     this._useMemoryFallback = false;
-    
+
     // Secure storage setup
     this._useSecureStorage = false;
     this._securePrefix = 'secure_teams_';
-    
+
+    // IPC mode: use main-process safeStorage instead of renderer-side
+    // (opt-in via auth.useMainProcessSafeStorage, default false)
+    this._useIpcSafeStorage = false;
+
     this._initializeSecureStorage();
-    
+
     console.debug('[TOKEN_CACHE] TokenCache initialized', {
       localStorage: this._isAvailable,
-      secureStorage: this._useSecureStorage
+      secureStorage: this._useSecureStorage,
+      ipcMode: this._useIpcSafeStorage
     });
+  }
+
+  /**
+   * Enable main-process IPC safeStorage mode.
+   * Safe to call multiple times; only enables once.
+   */
+  enableIpcMode() {
+    if (this._useIpcSafeStorage) {
+      return;
+    }
+    this._useIpcSafeStorage = true;
+    this._useSecureStorage = true;
+    console.debug('[TOKEN_CACHE] IPC safeStorage mode enabled');
   }
 
   //
@@ -214,13 +232,11 @@ class TeamsTokenCache {
     try {
       this._useSecureStorage = safeStorage?.isEncryptionAvailable() ?? false;
       console.debug('[TOKEN_CACHE] Secure storage', this._useSecureStorage ? 'available' : 'not available');
-      
     } catch (error) {
       console.warn('[TOKEN_CACHE] Secure storage initialization failed:', error.message);
       this._useSecureStorage = false;
     }
   }
-
 
   /**
    * Get item from secure storage
@@ -230,6 +246,15 @@ class TeamsTokenCache {
     try {
       const encryptedData = localStorage.getItem(this._securePrefix + key);
       if (!encryptedData) {
+        return null;
+      }
+      
+      if (this._useIpcSafeStorage) {
+        const result = await ipcRenderer.invoke('safe-storage-decrypt', encryptedData);
+        if (result.success) {
+          return result.data;
+        }
+        console.warn('[TOKEN_CACHE] IPC decrypt failed:', result.error);
         return null;
       }
       
@@ -247,6 +272,16 @@ class TeamsTokenCache {
    */
   async _setSecureItem(key, value) {
     try {
+      if (this._useIpcSafeStorage) {
+        const result = await ipcRenderer.invoke('safe-storage-encrypt', value);
+        if (result.success) {
+          localStorage.setItem(this._securePrefix + key, result.data);
+          return true;
+        }
+        console.warn('[TOKEN_CACHE] IPC encrypt failed:', result.error);
+        return false;
+      }
+      
       const encrypted = safeStorage.encryptString(value);
       localStorage.setItem(this._securePrefix + key, encrypted.toString('base64'));
       return true;

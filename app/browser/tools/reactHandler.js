@@ -11,6 +11,9 @@ class ReactHandler {
    */
   init(config) {
     this.config = config;
+    if (config?.auth?.useMainProcessSafeStorage) {
+      TokenCache.enableIpcMode();
+    }
   }
 
   getCommandChangeReportingService() {

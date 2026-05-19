@@ -589,8 +589,9 @@ function extractYargConfig(configObject, appVersion) {
             debug: false,
           },
           diagnosticLogging: false,
+          useMainProcessSafeStorage: false,
         },
-        describe: "Authentication configuration. auth.webauthn.enabled turns on hardware security key support on Linux (requires fido2-tools). auth.webauthn.debug enables verbose diagnostic logs, intended for beta testers only. auth.diagnosticLogging enables PII-safe authentication diagnostics.",
+        describe: "Authentication configuration. auth.webauthn.enabled turns on hardware security key support on Linux (requires fido2-tools). auth.webauthn.debug enables verbose diagnostic logs, intended for beta testers only. auth.diagnosticLogging enables PII-safe authentication diagnostics. auth.useMainProcessSafeStorage moves safeStorage operations to the main process.",
         type: "object",
       },
       multiAccount: {

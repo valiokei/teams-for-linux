@@ -284,6 +284,44 @@ if (gotTheLock) {
     return config.appVersion;
   });
 
+  // SafeStorage IPC handlers — allow renderer to use OS-level encryption
+  // via the main process, which has the correct D-Bus/keyring context.
+  // This is opt-in via auth.useMainProcessSafeStorage (default false).
+  ipcMain.handle("safe-storage-check", async () => {
+    try {
+      const { safeStorage } = require("electron");
+      return { available: safeStorage.isEncryptionAvailable() };
+    } catch (err) {
+      return { available: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle("safe-storage-encrypt", async (_event, plaintext) => {
+    try {
+      if (typeof plaintext !== "string") {
+        return { success: false, error: "Invalid input: expected string" };
+      }
+      const { safeStorage } = require("electron");
+      const encrypted = safeStorage.encryptString(plaintext);
+      return { success: true, data: encrypted.toString("base64") };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle("safe-storage-decrypt", async (_event, ciphertext) => {
+    try {
+      if (typeof ciphertext !== "string") {
+        return { success: false, error: "Invalid input: expected string" };
+      }
+      const { safeStorage } = require("electron");
+      const decrypted = safeStorage.decryptString(Buffer.from(ciphertext, "base64"));
+      return { success: true, data: decrypted };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
   // Navigate back in browser history
   ipcMain.on("navigate-back", (event) => {
     const webContents = event.sender;
