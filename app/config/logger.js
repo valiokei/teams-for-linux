@@ -41,7 +41,7 @@ exports.init = function (config) {
 
       Object.assign(console, log.functions);
       if (log.transports?.file?.level) {
-        console.debug(
+        console.info(
           `File logging at ${log.transports.file.getFile().path} with level ${log.transports.file.level}`,
         );
       }

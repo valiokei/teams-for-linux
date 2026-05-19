@@ -380,7 +380,7 @@ function extractYargConfig(configObject, appVersion) {
               level: "info",
             },
             file: {
-              level: false,
+              level: "info",
             },
           },
         },

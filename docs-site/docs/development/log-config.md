@@ -24,7 +24,7 @@ The JSON object provided for electron-log must follow the configuration options 
 
 ### Default Configuration
 
-The default configuration sets the console logging level to `info` and disables file logging:
+The default configuration sets both console and file logging to `info`:
 
 ```json
 {
@@ -34,7 +34,7 @@ The default configuration sets the console logging level to `info` and disables 
         "level": "info"
       },
       "file": {
-        "level": false
+        "level": "info"
       }
     }
   }

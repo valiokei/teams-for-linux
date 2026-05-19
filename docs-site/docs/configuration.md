@@ -532,7 +532,7 @@ Wayland display server settings are organized under the `wayland` configuration 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `webDebug` | `boolean` | `false` | Enable debug at start |
-| `logConfig` | `object` | `{ transports: { console: { level: "info" }, file: { level: false } } }` | Electron-log configuration |
+| `logConfig` | `object` | `{ transports: { console: { level: "info" }, file: { level: "info" } } }` | Electron-log configuration |
 | `watchConfigFile` | `boolean` | `false` | Watch for changes in config file and reload the app |
 
 ### Advanced Platform Options
