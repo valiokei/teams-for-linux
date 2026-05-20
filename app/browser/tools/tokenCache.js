@@ -32,6 +32,7 @@ class TeamsTokenCache {
     // IPC mode: use main-process safeStorage instead of renderer-side
     // (default on via auth.useMainProcessSafeStorage)
     this._useIpcSafeStorage = false;
+    this._mirrorSecureStorageToLocalStorage = true;
 
     this._initializeSecureStorage();
 
@@ -53,6 +54,16 @@ class TeamsTokenCache {
     this._useIpcSafeStorage = true;
     this._useSecureStorage = true;
     console.debug('[TOKEN_CACHE] IPC safeStorage mode enabled');
+  }
+
+  /**
+   * Keep the original localStorage keys populated while also writing encrypted
+   * copies. Teams/MSAL reads localStorage during cold start before our React
+   * bridge can inject _tokenCache; without this mirror it starts with no
+   * account and forces interactive login after every restart.
+   */
+  setLocalStorageMirrorEnabled(enabled) {
+    this._mirrorSecureStorageToLocalStorage = enabled !== false;
   }
 
   //
@@ -106,6 +117,7 @@ class TeamsTokenCache {
       if (this._useSecureStorage) {
         const stored = await this._setSecureItem(key, value);
         if (stored) {
+          this._mirrorPlaintextItem(key, value);
           return;
         }
       }
@@ -288,6 +300,18 @@ class TeamsTokenCache {
     } catch (error) {
       console.warn(`[TOKEN_CACHE] Secure setItem failed: ${error.message}`);
       return false;
+    }
+  }
+
+  _mirrorPlaintextItem(key, value) {
+    if (!this._mirrorSecureStorageToLocalStorage || this._useMemoryFallback) {
+      return;
+    }
+
+    try {
+      localStorage.setItem(key, value);
+    } catch (error) {
+      console.warn(`[TOKEN_CACHE] Plain localStorage mirror failed: ${error.message}`);
     }
   }
 

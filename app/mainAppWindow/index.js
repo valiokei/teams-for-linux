@@ -26,6 +26,10 @@ const {
   hasTrustedAuthSource,
   isWorkerAuthSignal,
 } = require("./authRecoveryDetection");
+const {
+  getAuthRecoveryMode,
+  shouldClearAuthStateOnRecovery,
+} = require("./authRecoveryPolicy");
 const os = require("node:os");
 const path = require("node:path");
 
@@ -363,8 +367,10 @@ async function cleanExpiredAuthCookies(windowSession, forceCleanAll = false) {
 }
 
 /**
- * Clears stale auth state (localStorage tokens + cookies) and reloads
- * the page to force a fresh interactive login.
+ * Reloads Teams after an auth failure. By default this is non-destructive:
+ * keep cookies/localStorage intact so Teams can use any remembered account or
+ * refresh-token state that survived a cold start. Users can opt into the old
+ * hard-clear behavior with auth.clearStorageOnAuthFailure.
  */
 async function triggerAuthRecovery() {
   if (!(await isNetworkReadyForAuthRecovery())) {
@@ -377,38 +383,45 @@ async function triggerAuthRecovery() {
     return;
   }
 
-  console.info('[AUTH_RECOVERY] Clearing auth state and reloading...');
+  const recoveryMode = getAuthRecoveryMode(config);
+  const clearAuthState = shouldClearAuthStateOnRecovery(config);
+
+  console.info('[AUTH_RECOVERY] Recovering auth state', { mode: recoveryMode });
   if (config?.auth?.diagnosticLogging) {
-    authDiagnostics.logRecoveryAction('triggered');
+    authDiagnostics.logRecoveryAction('triggered', { mode: recoveryMode });
   }
 
-  // Clear localStorage auth tokens via renderer
-  try {
-    const patternsJson = JSON.stringify(AUTH_LOCAL_STORAGE_PATTERNS);
-    const cleared = await window.webContents.executeJavaScript(`
-      (function() {
-        const patterns = ${patternsJson};
-        const keysToRemove = [];
-        for (let i = 0; i < localStorage.length; i++) {
-          const key = localStorage.key(i);
-          if (key && patterns.some(p => key.includes(p))) {
-            keysToRemove.push(key);
+  if (clearAuthState) {
+    // Clear localStorage auth tokens via renderer
+    try {
+      const patternsJson = JSON.stringify(AUTH_LOCAL_STORAGE_PATTERNS);
+      const cleared = await window.webContents.executeJavaScript(`
+        (function() {
+          const patterns = ${patternsJson};
+          const keysToRemove = [];
+          for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && patterns.some(p => key.includes(p))) {
+              keysToRemove.push(key);
+            }
           }
-        }
-        for (const key of keysToRemove) {
-          localStorage.removeItem(key);
-        }
-        return keysToRemove.length;
-      })()
-    `);
-    console.info('[AUTH_RECOVERY] Cleared localStorage auth entries', { count: cleared });
-  } catch (err) {
-    console.warn('[AUTH_RECOVERY] Failed to clear localStorage:', err.message);
+          for (const key of keysToRemove) {
+            localStorage.removeItem(key);
+          }
+          return keysToRemove.length;
+        })()
+      `);
+      console.info('[AUTH_RECOVERY] Cleared localStorage auth entries', { count: cleared });
+    } catch (err) {
+      console.warn('[AUTH_RECOVERY] Failed to clear localStorage:', err.message);
+    }
+  } else {
+    console.info('[AUTH_RECOVERY] Preserving auth localStorage entries');
   }
 
-  await cleanExpiredAuthCookies(window.webContents.session, true);
+  await cleanExpiredAuthCookies(window.webContents.session, clearAuthState);
 
-  console.info('[AUTH_RECOVERY] Reloading for fresh auth...');
+  console.info('[AUTH_RECOVERY] Reloading for auth recovery...');
   window.loadURL(config.url, { userAgent: config.chromeUserAgent });
 }
 
@@ -456,9 +469,14 @@ function scheduleAuthRecovery(signal = {}, source = "unknown") {
   console.info("[AUTH_RECOVERY] Auth failure detected, scheduling recovery", {
     source,
     reason,
+    mode: getAuthRecoveryMode(config),
   });
   if (config?.auth?.diagnosticLogging) {
-    authDiagnostics.logRecoveryAction("scheduled", { source, reason });
+    authDiagnostics.logRecoveryAction("scheduled", {
+      source,
+      reason,
+      mode: getAuthRecoveryMode(config),
+    });
   }
 
   // Delay to let Teams' own retry mechanism attempt recovery first.

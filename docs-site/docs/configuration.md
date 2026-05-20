@@ -192,6 +192,8 @@ The state file is automatically cleaned up when the app exits.
 | `authServerWhitelist` | `string` | `"*"` | Set auth-server-whitelist value |
 | `customCACertsFingerprints` | `array` | `[]` | Array of custom CA Certs Fingerprints to allow SSL unrecognized signer or self signed certificate |
 | `auth.useMainProcessSafeStorage` | `boolean` | `true` | Use main-process safeStorage for Teams token cache encryption/decryption, avoiding renderer keyring issues after suspend/resume |
+| `auth.mirrorSecureTokenCacheToLocalStorage` | `boolean` | `true` | Keep Teams-readable localStorage auth keys alongside secure cache copies so cold starts can find the existing account before the cache bridge initializes |
+| `auth.clearStorageOnAuthFailure` | `boolean` | `false` | Clear local auth storage/cookies during automatic auth recovery. Disabled by default to preserve remembered sessions after transient silent-login failures |
 | `tokenRefresh.enabled` | `boolean` | `true` | Enable proactive silent auth token refresh to keep long-running Teams sessions warm |
 | `tokenRefresh.refreshIntervalHours` | `number` | `1` | Silent refresh interval, clamped between 1 and 24 hours |
 | `tokenRefresh.resources` | `array` | Built-in Teams resource list | Optional HTTPS resource origins to try before the built-in Teams/Graph refresh resources |

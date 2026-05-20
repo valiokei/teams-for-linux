@@ -598,8 +598,10 @@ function extractYargConfig(configObject, appVersion) {
           },
           diagnosticLogging: false,
           useMainProcessSafeStorage: true,
+          mirrorSecureTokenCacheToLocalStorage: true,
+          clearStorageOnAuthFailure: false,
         },
-        describe: "Authentication configuration. auth.webauthn.enabled turns on hardware security key support on Linux (requires fido2-tools). auth.webauthn.debug enables verbose diagnostic logs, intended for beta testers only. auth.diagnosticLogging enables PII-safe authentication diagnostics. auth.useMainProcessSafeStorage moves safeStorage operations to the main process.",
+        describe: "Authentication configuration. auth.webauthn.enabled turns on hardware security key support on Linux (requires fido2-tools). auth.webauthn.debug enables verbose diagnostic logs, intended for beta testers only. auth.diagnosticLogging enables PII-safe authentication diagnostics. auth.useMainProcessSafeStorage moves safeStorage operations to the main process. auth.mirrorSecureTokenCacheToLocalStorage keeps Teams-readable localStorage token keys for cold starts. auth.clearStorageOnAuthFailure restores the legacy destructive auth recovery behavior.",
         type: "object",
       },
       multiAccount: {

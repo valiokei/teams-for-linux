@@ -11,6 +11,8 @@ class ReactHandler {
   _tokenRefreshInterval = null;
   _tokenRefreshInitialTimeout = null;
   _tokenRefreshInProgress = false;
+  _tokenCacheBootstrapInterval = null;
+  _tokenCacheBootstrapAttempts = 0;
   _ipcRenderer = null;
 
   /**
@@ -20,12 +22,19 @@ class ReactHandler {
   init(config, ipcRenderer = null) {
     this.config = config;
     this._ipcRenderer = ipcRenderer;
+    TokenCache.setLocalStorageMirrorEnabled(
+      config?.auth?.mirrorSecureTokenCacheToLocalStorage !== false
+    );
     if (config?.auth?.useMainProcessSafeStorage !== false) {
       TokenCache.enableIpcMode();
       this._logAuthEvent('info', '[TOKEN_CACHE] Main-process safeStorage enabled');
     } else {
       this._logAuthEvent('info', '[TOKEN_CACHE] Main-process safeStorage disabled');
     }
+    this._logAuthEvent('info', '[TOKEN_CACHE] LocalStorage cold-start mirror configured', {
+      enabled: config?.auth?.mirrorSecureTokenCacheToLocalStorage !== false,
+    });
+    this._startTokenCacheBootstrap();
     this._configureTokenRefresh(config);
   }
 
@@ -98,9 +107,7 @@ class ReactHandler {
     }
 
     try {
-      const teams2CoreServices = this._getTeams2CoreServices();
-      const authService = teams2CoreServices?.authenticationService;
-      const authProvider = authService?._coreAuthService?._authProvider;
+      const authProvider = this._getAuthProviderForTokenCache();
 
       if (!authProvider) {
         return false;
@@ -278,6 +285,7 @@ class ReactHandler {
       // Verify injection success
       if (this._validateTokenCacheInjection(authProvider)) {
         this._tokenCacheInjected = true;
+        this._logAuthEvent('info', '[TOKEN_CACHE] Token cache injected');
         return true;
       } else {
         console.error('[TOKEN_CACHE] Validation failed after injection');
@@ -298,6 +306,41 @@ class ReactHandler {
 
     const requiredMethods = ['getItem', 'setItem', 'removeItem', 'clear'];
     return requiredMethods.every(method => typeof tokenCache[method] === 'function');
+  }
+
+  _startTokenCacheBootstrap() {
+    this._clearTokenCacheBootstrap();
+    this._tokenCacheBootstrapAttempts = 0;
+
+    const maxAttempts = 90;
+    const attemptInjection = () => {
+      if (this._tokenCacheInjected) {
+        this._clearTokenCacheBootstrap();
+        return;
+      }
+
+      this._tokenCacheBootstrapAttempts++;
+      const authProvider = this._getAuthProviderForTokenCache(true);
+      if (authProvider && this._attemptTokenCacheInjection(authProvider)) {
+        this._clearTokenCacheBootstrap();
+        return;
+      }
+
+      if (this._tokenCacheBootstrapAttempts >= maxAttempts) {
+        this._clearTokenCacheBootstrap();
+        this._logAuthEvent('warn', '[TOKEN_CACHE] Early token cache bootstrap timed out');
+      }
+    };
+
+    setTimeout(attemptInjection, 0);
+    this._tokenCacheBootstrapInterval = setInterval(attemptInjection, 1000);
+  }
+
+  _clearTokenCacheBootstrap() {
+    if (this._tokenCacheBootstrapInterval) {
+      clearInterval(this._tokenCacheBootstrapInterval);
+      this._tokenCacheBootstrapInterval = null;
+    }
   }
 
   _configureTokenRefresh(config = {}) {
@@ -434,21 +477,25 @@ class ReactHandler {
   _validateReactStructure() {
     const appElement = document.getElementById("app");
 
-    // Check for traditional React mount structures
-    const hasLegacyReact = appElement._reactRootContainer || appElement._reactInternalInstance;
-
-    // Check for React 18+ createRoot structure (keys starting with __react)
-    const reactKeys = Object.getOwnPropertyNames(appElement).filter(key =>
-      key.startsWith('__react') || key.startsWith('_react')
-    );
-    const hasModernReact = reactKeys.length > 0;
-
-    if (!hasLegacyReact && !hasModernReact) {
+    if (!this._hasReactStructure(appElement)) {
       console.warn('ReactHandler: No React structure detected');
       return false;
     }
 
     return true;
+  }
+
+  _hasReactStructure(appElement) {
+    if (!appElement) {
+      return false;
+    }
+
+    const hasLegacyReact = appElement._reactRootContainer || appElement._reactInternalInstance;
+    const reactKeys = Object.getOwnPropertyNames(appElement).filter(key =>
+      key.startsWith('__react') || key.startsWith('_react')
+    );
+
+    return hasLegacyReact || reactKeys.length > 0;
   }
 
   /**
@@ -502,6 +549,35 @@ class ReactHandler {
     const reactElement = this._getTeams2ReactElement();
     if (!reactElement) return null;
 
+    return this._readTeams2CoreServices(reactElement);
+  }
+
+  _getTeams2CoreServicesQuiet() {
+    if (!this._isAllowedTeamsDomain(globalThis.location.hostname)) {
+      return null;
+    }
+
+    if (!document || typeof document.getElementById !== 'function') {
+      return null;
+    }
+
+    const appElement = document.getElementById("app");
+    if (!this._hasReactStructure(appElement)) {
+      return null;
+    }
+
+    return this._readTeams2CoreServices(appElement, true);
+  }
+
+  _getAuthProviderForTokenCache(quiet = false) {
+    const teams2CoreServices = quiet
+      ? this._getTeams2CoreServicesQuiet()
+      : this._getTeams2CoreServices();
+    const authService = teams2CoreServices?.authenticationService;
+    return authService?._coreAuthService?._authProvider || null;
+  }
+
+  _readTeams2CoreServices(reactElement, quiet = false) {
     try {
       const internalRoot =
         reactElement?._reactRootContainer?._internalRoot ||
@@ -517,7 +593,9 @@ class ReactHandler {
 
       return null;
     } catch (error) {
-      console.error('ReactHandler: Error accessing core services:', error);
+      if (!quiet) {
+        console.error('ReactHandler: Error accessing core services:', error);
+      }
       return null;
     }
   }
